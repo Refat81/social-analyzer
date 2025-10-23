@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Social Media Analyzer{% endblock %}
+
+{% block content %}
+<div class="row text-center mb-4">
+    <div class="col">
+        <h1>Social Media Analyzer</h1>
+        <p class="lead">Extract and analyze data from LinkedIn and Facebook with AI</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="fas fa-briefcase fa-3x text-primary mb-3"></i>
+                <h5 class="card-title">LinkedIn Analyzer</h5>
+                <p class="card-text">Extract and analyze LinkedIn profiles, companies, and posts</p>
+                <a href="/linkedin" class="btn btn-primary">Get Started</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-3x text-info mb-3"></i>
+                <h5 class="card-title">Facebook Analyzer</h5>
+                <p class="card-text">Extract data from Facebook groups with manual login</p>
+                <a href="/facebook" class="btn btn-info">Get Started</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="fas fa-fire fa-3x text-warning mb-3"></i>
+                <h5 class="card-title">Facebook Pro</h5>
+                <p class="card-text">Advanced Facebook data extraction</p>
+                <a href="/facebook-pro" class="btn btn-warning">Get Started</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">System Status</h5>
+                <div id="system-status">
+                    <p>Checking system status...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Check system status
+fetch('/api/status')
+    .then(response => response.json())
+    .then(data => {
+        const statusDiv = document.getElementById('system-status');
+        let statusHTML = '';
+        
+        if (data.ollama_available) {
+            statusHTML += `<p><i class="fas fa-check-circle text-success"></i> Ollama is running</p>`;
+            statusHTML += `<p><strong>Ollama Models:</strong> ${data.available_models.ollama.join(', ')}</p>`;
+        } else {
+            statusHTML += `<p><i class="fas fa-exclamation-triangle text-warning"></i> Ollama not detected</p>`;
+        }
+        
+        if (data.huggingface_available) {
+            statusHTML += `<p><i class="fas fa-check-circle text-success"></i> Hugging Face available</p>`;
+            statusHTML += `<p><strong>Hugging Face Models:</strong> ${data.available_models.huggingface.join(', ')}</p>`;
+        } else {
+            statusHTML += `<p><i class="fas fa-exclamation-triangle text-warning"></i> Hugging Face not configured</p>`;
+        }
+        
+        statusDiv.innerHTML = statusHTML;
+    })
+    .catch(error => {
+        document.getElementById('system-status').innerHTML = `
+            <p><i class="fas fa-times-circle text-danger"></i> Error checking system status</p>
+        `;
+    });
+</script>
+{% endblock %}
