@@ -1,6 +1,5 @@
 import requests
 import logging
-from langchain_community.llms import Ollama
 from langchain_community.llms import HuggingFaceHub
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -14,94 +13,75 @@ logger = logging.getLogger(__name__)
 
 class ChatbotManager:
     def __init__(self):
-        self.available_models = {'ollama': [], 'huggingface': []}
-        self.current_model = None
-        self.current_model_type = 'ollama'
+        self.available_models = {
+            'huggingface': [
+                "mistralai/Mistral-7B-Instruct-v0.1",
+                "google/flan-t5-large", 
+                "microsoft/DialoGPT-large",
+                "facebook/blenderbot-400M-distill",
+                "tiiuae/falcon-7b-instruct"
+            ]
+        }
+        self.current_model = Config.HUGGINGFACE_DEFAULT_MODEL
         self.conversation_chains = {}
         
-    def check_ollama_status(self):
-        """Check if Ollama is running"""
-        try:
-            response = requests.get(f"{Config.OLLAMA_BASE_URL}/api/tags", timeout=10)
-            if response.status_code == 200:
-                models = response.json().get('models', [])
-                self.available_models['ollama'] = [model['name'] for model in models]
-                logger.info(f"✅ Ollama is running. Models: {self.available_models['ollama']}")
-                return True
-        except Exception as e:
-            logger.warning(f"❌ Ollama not available: {str(e)}")
-            self.available_models['ollama'] = ["llama2", "mistral"]
-        return False
-    
     def check_huggingface_status(self):
         """Check if Hugging Face is available"""
         try:
-            if Config.HUGGINGFACE_API_KEY:
-                self.available_models['huggingface'] = [
-                    "mistralai/Mistral-7B-Instruct-v0.1",
-                    "google/flan-t5-large",
-                    "microsoft/DialoGPT-large",
-                    "facebook/blenderbot-400M-distill"
-                ]
-                logger.info(f"✅ Hugging Face available. Models: {self.available_models['huggingface']}")
+            if not Config.HUGGINGFACE_API_KEY:
+                logger.error("❌ Hugging Face API key not configured")
+                return False
+            
+            # Test the API key with a simple request
+            headers = {"Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}"}
+            response = requests.get(
+                "https://huggingface.co/api/models/mistralai/Mistral-7B-Instruct-v0.1",
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info("✅ Hugging Face API is working correctly")
                 return True
+            else:
+                logger.error(f"❌ Hugging Face API test failed: {response.status_code}")
+                return False
+                
         except Exception as e:
-            logger.warning(f"❌ Hugging Face not available: {str(e)}")
-            self.available_models['huggingface'] = []
-        return False
+            logger.error(f"❌ Hugging Face connection error: {str(e)}")
+            return False
     
     def get_available_models(self):
         """Get all available models"""
-        self.check_ollama_status()
         self.check_huggingface_status()
         return self.available_models
     
-    def initialize_llm(self, model_name=None, model_type="ollama"):
-        """Initialize the language model"""
+    def initialize_llm(self, model_name=None):
+        """Initialize Hugging Face language model"""
         try:
-            if model_type == "ollama":
-                if not self.available_models['ollama']:
-                    raise Exception("No Ollama models available")
-                
-                model_to_use = model_name or Config.OLLAMA_DEFAULT_MODEL
-                if model_to_use not in self.available_models['ollama']:
-                    model_to_use = self.available_models['ollama'][0]
-                
-                llm = Ollama(
-                    model=model_to_use,
-                    base_url=Config.OLLAMA_BASE_URL,
-                    temperature=0.7,
-                    top_p=0.9,
-                    num_predict=512
-                )
-                self.current_model = model_to_use
-                self.current_model_type = 'ollama'
-                return llm
-                
-            elif model_type == "huggingface":
-                if not Config.HUGGINGFACE_API_KEY:
-                    raise Exception("Hugging Face API key not configured")
-                
-                model_to_use = model_name or Config.HUGGINGFACE_DEFAULT_MODEL
-                
-                llm = HuggingFaceHub(
-                    repo_id=model_to_use,
-                    model_kwargs={
-                        "temperature": 0.7,
-                        "max_length": 512,
-                        "top_p": 0.9
-                    },
-                    huggingfacehub_api_token=Config.HUGGINGFACE_API_KEY
-                )
-                self.current_model = model_to_use
-                self.current_model_type = 'huggingface'
-                return llm
-                
-            else:
-                raise Exception(f"Unsupported model type: {model_type}")
-                
+            if not Config.HUGGINGFACE_API_KEY:
+                raise Exception("Hugging Face API key not configured")
+            
+            model_to_use = model_name or Config.HUGGINGFACE_DEFAULT_MODEL
+            
+            llm = HuggingFaceHub(
+                repo_id=model_to_use,
+                model_kwargs={
+                    "temperature": 0.7,
+                    "max_length": 512,
+                    "max_new_tokens": 256,
+                    "top_p": 0.9,
+                    "do_sample": True
+                },
+                huggingfacehub_api_token=Config.HUGGINGFACE_API_KEY
+            )
+            
+            self.current_model = model_to_use
+            logger.info(f"✅ Hugging Face model initialized: {model_to_use}")
+            return llm
+            
         except Exception as e:
-            logger.error(f"❌ Failed to initialize LLM: {str(e)}")
+            logger.error(f"❌ Failed to initialize Hugging Face model: {str(e)}")
             raise e
     
     def get_embeddings(self):
@@ -116,8 +96,8 @@ class ChatbotManager:
             logger.error(f"❌ Failed to initialize embeddings: {str(e)}")
             raise e
     
-    def create_conversation_chain(self, text_data, model_name=None, model_type="ollama"):
-        """Create a conversation chain"""
+    def create_conversation_chain(self, text_data, model_name=None):
+        """Create a conversation chain with Hugging Face"""
         try:
             # Split text into chunks
             text_splitter = CharacterTextSplitter(
@@ -135,7 +115,7 @@ class ChatbotManager:
             vectorstore = FAISS.from_documents(documents, embeddings)
             
             # Initialize LLM
-            llm = self.initialize_llm(model_name, model_type)
+            llm = self.initialize_llm(model_name)
             
             # Create memory
             memory = ConversationBufferMemory(
@@ -154,12 +134,11 @@ class ChatbotManager:
             )
             
             # Store the chain
-            chain_id = f"{model_type}_{model_name or 'default'}"
+            chain_id = f"hf_{model_name or 'default'}"
             self.conversation_chains[chain_id] = {
                 'chain': chain,
                 'vectorstore': vectorstore,
-                'model_name': model_name,
-                'model_type': model_type
+                'model_name': model_name or Config.HUGGINGFACE_DEFAULT_MODEL
             }
             
             logger.info(f"✅ Conversation chain created: {chain_id}")
@@ -192,10 +171,9 @@ class ChatbotManager:
                 chain_data = self.conversation_chains[chain_id]
                 vectorstore = chain_data['vectorstore']
                 model_name = chain_data['model_name']
-                model_type = chain_data['model_type']
                 
                 # Create new chain with fresh memory
-                llm = self.initialize_llm(model_name, model_type)
+                llm = self.initialize_llm(model_name)
                 
                 memory = ConversationBufferMemory(
                     memory_key="chat_history",
@@ -212,6 +190,7 @@ class ChatbotManager:
                 )
                 
                 self.conversation_chains[chain_id]['chain'] = new_chain
+                logger.info(f"✅ Conversation cleared for: {chain_id}")
                 return True
                 
             return False
