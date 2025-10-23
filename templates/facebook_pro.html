@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}LinkedIn Analyzer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-briefcase"></i> LinkedIn Data Extraction
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Model Selection -->
+                <div class="model-selector">
+                    <h6>AI Model Selection</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">Model Type</label>
+                            <select class="form-select" id="model-type">
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="huggingface">Hugging Face (Cloud)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Model Name</label>
+                            <select class="form-select" id="model-name">
+                                <option value="llama2">Llama 2</option>
+                                <option value="mistral">Mistral</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="extract-form">
+                    <div class="mb-3">
+                        <label class="form-label">Content Type</label>
+                        <select class="form-select" id="data-type">
+                            <option value="profile">Profile</option>
+                            <option value="company">Company</option>
+                            <option value="post">Post</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">LinkedIn URL</label>
+                        <input type="url" class="form-control" id="linkedin-url" 
+                               placeholder="https://www.linkedin.com/in/username/" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-download"></i> Extract Data
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Extraction Results</h5>
+            </div>
+            <div class="card-body">
+                <div id="extraction-results">
+                    <p class="text-muted">No data extracted yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot"></i> Chat with Data
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="chat-messages" style="height: 400px; overflow-y: auto; margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+                    <div class="chat-message bot-message">
+                        <strong>AI Assistant:</strong> Hello! Extract some LinkedIn data first, then I can answer questions about it.
+                    </div>
+                </div>
+                
+                <form id="chat-form">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="chat-input" 
+                               placeholder="Ask about the extracted data..." disabled>
+                        <button type="submit" class="btn btn-primary" disabled>
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </div>
+                </form>
+                
+                <div class="mt-2">
+                    <button class="btn btn-outline-secondary btn-sm" id="clear-chat" disabled>
+                        <i class="fas fa-trash"></i> Clear Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let extractedData = null;
+
+// Load available models
+function loadAvailableModels() {
+    fetch('/api/models/available')
+        .then(response => response.json())
+        .then(data => {
+            const modelTypeSelect = document.getElementById('model-type');
+            const modelNameSelect = document.getElementById('model-name');
+            
+            // Update model options based on type
+            modelTypeSelect.addEventListener('change', function() {
+                const modelType = this.value;
+                modelNameSelect.innerHTML = '';
+                
+                let models = [];
+                if (modelType === 'ollama' && data.ollama) {
+                    models = data.ollama;
+                } else if (modelType === 'huggingface' && data.huggingface) {
+                    models = data.huggingface;
+                }
+                
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    modelNameSelect.appendChild(option);
+                });
+            });
+            
+            // Trigger initial load
+            modelTypeSelect.dispatchEvent(new Event('change'));
+        })
+        .catch(error => {
+            console.error('Error loading models:', error);
+        });
+}
+
+// Extract data form
+document.getElementById('extract-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const url = document.getElementById('linkedin-url').value;
+    const dataType = document.getElementById('data-type').value;
+    const modelType = document.getElementById('model-type').value;
+    const modelName = document.getElementById('model-name').value;
+    
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Extracting...';
+    
+    try {
+        const response = await fetch('/api/linkedin/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                url, 
+                data_type: dataType,
+                model_name: modelName,
+                model_type: modelType
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            showMessage('error', data.error);
+        } else {
+            extractedData = data;
+            showExtractionResults(data);
+            enableChat();
+            showMessage('success', `Successfully extracted ${data.total_blocks} content blocks using ${data.model_used}!`);
+        }
+    } catch (error) {
+        showMessage('error', 'Extraction failed: ' + error.message);
+    }
+    
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i class="fas fa-download"></i> Extract Data';
+});
+
+// Chat form
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const input = document.getElementById('chat-input');
+    const question = input.value.trim();
+    
+    if (!question) return;
+    
+    // Add user message
+    addChatMessage('user', question);
+    input.value = '';
+    
+    // Show typing indicator
+    const typingMsg = addChatMessage('bot', 'Thinking...', true);
+    
+    try {
+        const response = await fetch('/api/linkedin/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+        });
+        
+        const data = await response.json();
+        
+        // Remove typing indicator
+        typingMsg.remove();
+        
+        if (data.error) {
+            addChatMessage('bot', 'Error: ' + data.error);
+        } else {
+            addChatMessage('bot', data.answer);
+        }
+    } catch (error) {
+        typingMsg.remove();
+        addChatMessage('bot', 'Error: ' + error.message);
+    }
+});
+
+// Clear chat
+document.getElementById('clear-chat').addEventListener('click', function() {
+    document.getElementById('chat-messages').innerHTML = `
+        <div class="chat-message bot-message">
+            <strong>AI Assistant:</strong> Chat history cleared. You can continue asking questions.
+        </div>
+    `;
+});
+
+function showExtractionResults(data) {
+    const resultsDiv = document.getElementById('extraction-results');
+    resultsDiv.innerHTML = `
+        <div class="alert alert-success">
+            <h6><i class="fas fa-check-circle"></i> Extraction Successful</h6>
+            <p class="mb-1"><strong>Data Type:</strong> ${data.data_type}</p>
+            <p class="mb-1"><strong>Content Blocks:</strong> ${data.total_blocks}</p>
+            <p class="mb-1"><strong>Model Used:</strong> ${data.model_used}</p>
+        </div>
+        
+        <h6>Sample Content:</h6>
+        <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f8f9fa;">
+            ${data.content.slice(0, 3).map((content, i) => `
+                <div class="mb-2">
+                    <small><strong>Block ${i + 1}:</strong></small>
+                    <div style="font-size: 0.9em;">${content.substring(0, 200)}...</div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function enableChat() {
+    document.getElementById('chat-input').disabled = false;
+    document.querySelector('#chat-form button').disabled = false;
+    document.getElementById('clear-chat').disabled = false;
+}
+
+function addChatMessage(sender, message, isTyping = false) {
+    const messagesDiv = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
+    messageDiv.innerHTML = `<strong>${sender === 'user' ? 'You' : 'AI Assistant'}:</strong> ${message}`;
+    
+    if (isTyping) {
+        messageDiv.id = 'typing-indicator';
+        messageDiv.innerHTML = `<strong>AI Assistant:</strong> <i>${message}</i>`;
+    }
+    
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    return messageDiv;
+}
+
+function showMessage(type, message) {
+    const alertClass = type === 'error' ? 'alert-danger' : 'alert-success';
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert ${alertClass} alert-dismissible fade show mt-3`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+    
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Load models when page loads
+loadAvailableModels();
+</script>
+{% endblock %}
